@@ -81,11 +81,13 @@ void loop() {
 // Function that executes whenever the master requests data
 void requestEvent() {
   // Send sensorData and pointData as 16-bit integers to the master
-  Wire.write(highByte(sensorData));  // Send high byte of sensorData
-  Wire.write(lowByte(sensorData));   // Send low byte of sensorData
+  Wire.write(sensorData); 
+  Wire.write(pointData); 
+  // Wire.write(highByte(sensorData));  // Send high byte of sensorData
+  // Wire.write(lowByte(sensorData));   // Send low byte of sensorData
 
-  Wire.write(highByte(pointData));  // Send high byte of pointData
-  Wire.write(lowByte(pointData));   // Send low byte of pointData
+  // Wire.write(highByte(pointData));  // Send high byte of pointData
+  // Wire.write(lowByte(pointData));   // Send low byte of pointData
 
   // Debug output
 

@@ -64,8 +64,9 @@ int oldLastPointMoved = 0;       // Global. previuous point calibrated
 //JMRI  and RS485 connections
 const int CMRI_ADDRESS = 0;  // node address
 const uint8_t DE_PIN = 2;    //Pin for RS485 DE & RE connected together
-int incomingSensors = 0;     // 16 bits from sensor Arduino
-uint16_t incoming;           // 16 bits from JMRI data
+int incoming = 0;
+byte incomingSensors;
+// bits from JMRI data
 byte slaveAddress = 8;
 
 // panel HID
@@ -361,7 +362,7 @@ void setLeds() {
       onHue = 220;
     }
     onLev = 0;
-    if ((incomingSensors >> i - sensStarti)) onLev = 100;
+    if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 100;
     leds[LEDS_MIMIC[i]] = CHSV(onHue, onSat, onLev);
   }
   FastLED.show();
@@ -484,19 +485,22 @@ void i2cReadWrite() {
   Wire.beginTransmission(slaveAddress);
   error = Wire.endTransmission();  // Check for errors
   if (error == 0) {
-    Wire.requestFrom(slaveAddress, 4);  // request 4 bytes from slave device #8
-    if (Wire.available() == 4) {        //
-      incomingSensors = Wire.read() << 8 | Wire.read();
-      incoming = Wire.read() << 8 | Wire.read();
+    Wire.requestFrom(slaveAddress, 2);  // request 4 bytes from slave device #8
+    if (Wire.available() == 2) {        //
+      incomingSensors = Wire.read();    //<< 8 | Wire.read();
+      incoming = Wire.read();           // << 8 | Wire.read();
+      //Serial.print(" incoming Sensors = ");
+      //Serial.println(incomingSensors,BIN);
     }
-  }
-  //point Arduino sends swStatus to slave
-  delay(100);
-  Wire.beginTransmission(slaveAddress);
-  Wire.write(highByte(swStatus));  // Send high byte
-  Wire.write(lowByte(swStatus));   // Send low byte
 
-  Wire.endTransmission();
+    //point Arduino sends swStatus to slave
+    delay(100);
+    Wire.beginTransmission(slaveAddress);
+    Wire.write(highByte(swStatus));  // Send high byte
+    Wire.write(lowByte(swStatus));   // Send low byte
+
+    Wire.endTransmission();
+  }
 }
 
 
@@ -574,7 +578,7 @@ void setup() {
   delay(1000);
   bus.begin(19200);
   digitalWrite(CAL_LED, 0);
- 
+
 
   while (digitalRead(ENCODER_PUSH) == 0) {}
   delay(100);
@@ -591,7 +595,7 @@ void loop() {
 
   readSwitches();
   //printTimeVars();
-  
+
   if (!cal) {
     moving = 0;
     for (int i = 0; i < NO_OF_POINTS; i++) {
@@ -599,7 +603,7 @@ void loop() {
     }
     if (!moving) i2cReadWrite();
   }
-   
+
   if (!changeMoveSpeed) {
     calibrate();
   } else {
