@@ -68,6 +68,7 @@ int incoming = 0;
 byte incomingSensors;
 // bits from JMRI data
 byte slaveAddress = 8;
+byte i2cError=255;
 
 // panel HID
 const uint8_t MOV_LED = 13;    // LED to denote points are moving
@@ -363,6 +364,7 @@ void setLeds() {
     }
     onLev = 0;
     if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 100;
+    if(i2cError>0)onLev=flash;
     leds[LEDS_MIMIC[i]] = CHSV(onHue, onSat, onLev);
   }
   FastLED.show();
@@ -481,10 +483,10 @@ void i2cReadWrite() {
   //       16 sensors from slave,
   //       16 points from JMRI
 
-  byte error;
+  
   Wire.beginTransmission(slaveAddress);
-  error = Wire.endTransmission();  // Check for errors
-  if (error == 0) {
+  i2cError = Wire.endTransmission();  // Check for errors
+  if (i2cError == 0) {
     Wire.requestFrom(slaveAddress, 2);  // request 4 bytes from slave device #8
     if (Wire.available() == 2) {        //
       incomingSensors = Wire.read();    //<< 8 | Wire.read();
@@ -501,6 +503,7 @@ void i2cReadWrite() {
 
     Wire.endTransmission();
   }
+ // printf("i2cError code = %d\n",i2cError);
 }
 
 
