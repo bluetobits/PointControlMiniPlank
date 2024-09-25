@@ -1,3 +1,5 @@
+
+//Git version 24/09/24
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <FastLED.h>
@@ -6,36 +8,38 @@
 #include <LibPrintf.h>
 #include <CMRI.h>
 #include <Auto485.h>
-
 // pointPairing The master point of a point pair must be the point with the lower point number
 // the pointPairs position is the actual point, the number is the point that controls it.
 // multiple points can be controlled by 1 point, a negative number indicated the slave point is inverter.
+//
+
+// SWITCHING DATA CHANGE ALL CAPITALISED VALUES TO SUIT
+const uint8_t NO_OF_POINTS = 2;         // no of szwitches / points on the switch panel
+const uint8_t ROW_PINS[] = { 6 };       //Arduino pin numbers for output switch Matrix
+const uint8_t NO_OF_ROWS = 1;           //the number of rows the switches are matrix wired (see schematic)
+const uint8_t COL_PINS[] = { A1, A0 };  //Arduino pin numbers for analog input switch Matrix
+const uint8_t NO_OF_COLS = 2;           //the number of columns the switches are matrix wired (see schematic)
+const int8_t POINT_PAIRS[] = { 0, 0 };  // change the number in point number position. read notes above.
+const int TOP_PULSE_LEN = 2400;         // setting the maximum cw servo position(actual = 2500 but not all servos are the same)
+const int BOTTOM_PULSE_LEN = 600;       //setting the minimum ccw servo position
+bool pointPairing = 0;                  // Global pairing slave points with master points
+const uint8_t NO_OF_LEDS = 10;
+const uint8_t NO_OF_BLOCKS = 4;
+const uint8_t NO_OF_SENS = 4;
+// total number of WS2812b LEDS
+const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4 };  // the order of the leds. point 0 Closed, Point 0 Thrown, Point 1 closed, 1 thrown, etc the rest are sensors
+
+// end of user settings
+
+int moveSpeed = 100;         //Global. point move speed
+bool moving = 0;             //Global. at least one  pooint is moving
+bool cal = 0;                //Global. calibrating  status
+uint16_t swStatus = 0;       //Global. 16 bits showing switch status
+uint16_t oldswStatus = 0;    //Global. records 16 bits for the previous loop switch status
+uint8_t lastPointMoved = 0;  //Global.  for calibrating. closed positions are 0-15 and thrown positions are 16-31
 
 
-// SWITCHING DATA
-const int NO_OF_POINTS = 2;
-const uint8_t rowPins[] = { 6 };  //Arduino pin numbers for output switch Matrix
-const int NO_OF_ROWS = 1;
-const uint8_t colPins[] = { A1, A0 };  //Arduino pin numbers for analog input switch Matrix
-const int NO_OF_COLS = 2;
 
-const int8_t pointPairs[] = { 0, 0 };  // change the number in point number position. read notes above.
-bool pointPairing = 0;                 // Global pairing slave points with master points
-
-int moveSpeed = 100;               //Global. point move speed
-bool moving = 0;                   //Global. at least one  pooint is moving
-bool cal = 0;                      //Global. calibrating  status
-uint16_t swStatus = 0;             //Global. 16 bits showing switch status
-uint16_t oldswStatus = 0;          //Global. records 16 bits for the previous loop switch status
-uint8_t lastPointMoved = 0;        //Global.  for calibrating. closed positions are 0-15 and thrown positions are 16-31
-const int TOP_PULSE_LEN = 2400;    // setting the maximum cw servo position(actual = 2500 but not all servos are the same)
-const int BOTTOM_PULSE_LEN = 600;  //setting the minimum ccw servo position
-
-bool incoming[16];  // JMRI data
-
-// Mimic LEDS
-const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4 };
-const int NO_OF_LEDS = 10;
 
 // translate switch order to mimic led order 0closed, 0thrown, 1closed, 1thrown, 2closed, 2thrown...
 unsigned long timeNow;
@@ -55,11 +59,15 @@ const uint8_t ENCA_PIN = 3;      // encoder pin A
 const uint8_t ENCB_PIN = 4;      // encoder pin B
 const uint8_t ENCODER_PUSH = 5;  // push button pin
 int32_t encoderPos = 0;          //Global.  current/previous encoder position
-int oldLastPointMoved = 0; // Global. previuous point calibrated
+int oldLastPointMoved = 0;       // Global. previuous point calibrated
 
 //JMRI  and RS485 connections
 const int CMRI_ADDRESS = 0;  // node address
 const uint8_t DE_PIN = 2;    //Pin for RS485 DE & RE connected together
+int incomingSensors = 0;     // 16 bits from sensor Arduino
+uint16_t incoming;           // 16 bits from JMRI data
+byte slaveAddress = 8;
+
 // panel HID
 const uint8_t MOV_LED = 13;    // LED to denote points are moving
 const uint8_t CAL_LED = 11;    // LED to denote in calibration mode
@@ -67,9 +75,8 @@ const uint8_t DATA_PIN = 10;   // neopixels data connect from here via 50 ohm re
 const int LONG_PUSH = 3000;    // the "long push" duration of encoder button
 bool changeMoveSpeed = false;  // flag to idnicate push is held in from startup
 
-
 //Initialisation
-CRGB leds[32];  //LED neopixel array
+CRGB leds[NO_OF_LEDS];  //LED neopixel strip
 Adafruit_PWMServoDriver servo = Adafruit_PWMServoDriver();
 Encoder encoder(ENCA_PIN, ENCB_PIN);
 Auto485 bus(DE_PIN);                   // Arduino pin 2 -> MAX485 DE and RE pins together
@@ -171,17 +178,17 @@ void readSwitches() {
   swStatus = 0;  // Clear previous value
 
   for (int row = 0; row < NO_OF_ROWS; row++) {    // iterate through all 4 switch rows.
-    digitalWrite(rowPins[row], HIGH);             // set the current row high
+    digitalWrite(ROW_PINS[row], HIGH);            // set the current row high
     for (int col = 0; col < NO_OF_COLS; col++) {  //iterate through all 4 switch cols.
       bool curPointStatus;                        // temp store the current point switch pos before reading in the new status
       int i = row * NO_OF_ROWS + col;             // set i for each switch counting across rows for each columns
       curPointStatus = point[i].swPos;            // temp save old switch position to see if it will change for calibrating
-      int swIn = analogRead(colPins[col]);        // read the value of each col
-      
+      int swIn = analogRead(COL_PINS[col]);       // read the value of each col
 
-      if (!cal && pointPairs[i] != i && pointPairing) {  //if a slave and not calibrating and pointpairing is enabled
-        point[i].swPos = point[abs(pointPairs[i])].swPos;
-        if (pointPairs[i] < 0) point[i].swPos = !point[i].swPos;  // match master point setting
+
+      if (!cal && POINT_PAIRS[i] != i && pointPairing) {  //if a slave and not calibrating and pointpairing is enabled
+        point[i].swPos = point[abs(POINT_PAIRS[i])].swPos;
+        if (POINT_PAIRS[i] < 0) point[i].swPos = !point[i].swPos;  // match master point setting
         //printf ("point number %d  is paired with = %d and is set to %d\n",i,pointPairs[i],point[i].swPos );
 
       } else {
@@ -193,8 +200,8 @@ void readSwitches() {
           point[i].swPos = true;
         } else if (swIn >= 300 && swIn < 600) {  //switch in mid position therefore closed
           point[i].swPos = 0;
-        } else if (swIn > 600) {         // switch is opposite thrown and therefore under computer control
-          point[i].swPos = incoming[i];  // set to incoming CMRI/JMRI position
+        } else if (swIn > 600) {                 // switch is opposite thrown and therefore under computer control
+          point[i].swPos = (incoming >> i) & 1;  // set to incoming CMRI/JMRI position
           point[i].autoControl = 1;
         }
         // if (swIn < 10) printf(" ");
@@ -210,7 +217,7 @@ void readSwitches() {
       //printf("%d at row %d, col %d\n",point[i].swPos,row,col);
       swStatus = swStatus + (point[i].swPos << i);  // convienient place to generate the
     }
-    digitalWrite(rowPins[row], LOW);
+    digitalWrite(ROW_PINS[row], LOW);
   }
   // printf("\n");
 }
@@ -258,15 +265,15 @@ void printOutData() {
     } else {
       printf(" P%d", i);
     }
-    if (point[i].curPos!= point[i].closedPos||point[i].curPos!= point[i].thrownPos){
-      printf("   point %d is moving to %d ",i, point[i].curPos);
+    if (point[i].curPos != point[i].closedPos || point[i].curPos != point[i].thrownPos) {
+      printf("   point %d is moving to %d ", i, point[i].curPos);
     }
   }
   printf("\n");
   for (int i = 0; i < NO_OF_POINTS; i++) {
     printf("  %d  ", point[i].swPos);
   }
-  int temp = lastPointMoved/2 + lastPointMoved%2;
+  int temp = lastPointMoved / 2 + lastPointMoved % 2;
   printf(" last point moved = %d ", lastPointMoved);
   printf("\n");
 }
@@ -282,7 +289,7 @@ s
 void getSetData() {
   cmri.process();                           // get JMRI data via CMRI bits
   for (int i = 0; i < NO_OF_POINTS; i++) {  // just using 16 outputs
-    incoming[i] = cmri.get_bit(i);          // get new incoming status for point positions
+    incoming |= cmri.get_bit(i) << i;       // get new incoming status for point positions
     cmri.set_bit(i, point[i].swPos);        //set CMRI bits
   }
 }
@@ -301,7 +308,7 @@ void setLeds() {
     int onHueStop = 0;  // red
     int onHueGo = 90;   // green
     int neoNum = 2 * i;
-    if (pointPairs[i] != i && pointPairing) {
+    if (POINT_PAIRS[i] != i && pointPairing) {
       onHueStop = 32;  // Orange
       onHueGo = 128;   // aqua
     }
@@ -347,7 +354,18 @@ void setLeds() {
       }
     }
   }
+  byte sensStarti = NO_OF_POINTS * 2;
+  for (uint8_t i = sensStarti; i < NO_OF_LEDS; i++) {
+    onHue = 60;
+    if (i < NO_OF_BLOCKS + sensStarti) {
+      onHue = 220;
+    }
+    onLev = 0;
+    if ((incomingSensors >> i - sensStarti)) onLev = 100;
+    leds[LEDS_MIMIC[i]] = CHSV(onHue, onSat, onLev);
+  }
   FastLED.show();
+  onLev = 100;
 }
 
 
@@ -361,7 +379,7 @@ void testLeds() {
   }
   FastLED.show();
   delay(1000);
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < NO_OF_POINTS; i++) {
     int neoNum = 2 * i;
     leds[LEDS_MIMIC[neoNum]] = CHSV(64, 255, 250);
     leds[LEDS_MIMIC[neoNum + 1]] = CHSV(128, 255, 250);
@@ -405,7 +423,7 @@ void calibrate() {
         longPress = 0;  // just to be sure!
         printf("pressCount = %d, changing pointPairing from %d to ", pressCount, pointPairing);
         pointPairing = !pointPairing;
-        printf(" %d\n" ,pointPairing);
+        printf(" %d\n", pointPairing);
         savePointValues();  // should only write pointPairing as no point calibration positions have changed.
       }
       //printf("pressCount = %d, pointPairing = %d\n", pressCount, pointPairing);
@@ -425,12 +443,12 @@ void calibrate() {
       }
     }
   }
-  if (cal) {                                       // at any time
-    
-    int32_t move = (encoder.read() - encoderPos);  //current value - old value
-    if (move != 0||oldLastPointMoved!=lastPointMoved) {//there has been an encoder move since last pass (could be -ve) or new point switched
-      encoder.write(0);                            // reset encoder
-      uint8_t pointNum;                            // this is the point number extracted from lastPointMoved
+  if (cal) {  // at any time
+
+    int32_t move = (encoder.read() - encoderPos);            //current value - old value
+    if (move != 0 || oldLastPointMoved != lastPointMoved) {  //there has been an encoder move since last pass (could be -ve) or new point switched
+      encoder.write(0);                                      // reset encoder
+      uint8_t pointNum;                                      // this is the point number extracted from lastPointMoved
 
       if (lastPointMoved >= NO_OF_POINTS) {        // this is a point set at thrown
         pointNum = lastPointMoved - NO_OF_POINTS;  // taking 16 of this number
@@ -449,13 +467,36 @@ void calibrate() {
         point[pointNum].curPos = point[pointNum].closedPos;
         printf("Cal point %d : closed pos = %d \n", pointNum, point[pointNum].closedPos);
       }
-      oldLastPointMoved=lastPointMoved;
+      oldLastPointMoved = lastPointMoved;
     }
   }
 }
 
-uint16_t i2cReadWrite(uint16_t, points){
-  swStatus
+//==================================== I2C =====================////
+void i2cReadWrite() {
+  //adding i2c
+  // point arduino is the master, sensor arduino is the slave
+  // point arduino receives
+  //       16 sensors from slave,
+  //       16 points from JMRI
+
+  byte error;
+  Wire.beginTransmission(slaveAddress);
+  error = Wire.endTransmission();  // Check for errors
+  if (error == 0) {
+    Wire.requestFrom(slaveAddress, 4);  // request 4 bytes from slave device #8
+    if (Wire.available() == 4) {        //
+      incomingSensors = Wire.read() << 8 | Wire.read();
+      incoming = Wire.read() << 8 | Wire.read();
+    }
+  }
+  //point Arduino sends swStatus to slave
+  delay(100);
+  Wire.beginTransmission(slaveAddress);
+  Wire.write(highByte(swStatus));  // Send high byte
+  Wire.write(lowByte(swStatus));   // Send low byte
+
+  Wire.endTransmission();
 }
 
 
@@ -467,24 +508,24 @@ void setup() {
   servo.begin();
   servo.setPWMFreq(50);
   yield();
-  wire.begin();
+  Wire.begin();
   printf("\npointControlMERG3 Steve Lomax 22/08/24 Free for personal use.\n");
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NO_OF_LEDS);
 
   for (int i = 0; i < NO_OF_ROWS; i++) {
-    pinMode(rowPins[i], OUTPUT);  // 6
+    pinMode(ROW_PINS[i], OUTPUT);  // 6
   }
   for (int i = 0; i < NO_OF_COLS; i++) {
-    pinMode(colPins[i], INPUT);  // A0 A1
+    pinMode(COL_PINS[i], INPUT);  // A0 A1
   }
   pinMode(ENCODER_PUSH, INPUT_PULLUP);  //5
   pinMode(MOV_LED, OUTPUT);             //13
-  pinMode(CAL_LED, OUTPUT);             //12
+  pinMode(CAL_LED, OUTPUT);             //11
 
   loadPointValues();
-  if (pointPairing >254 ) pointPairing = 1;
-  if (pointPairing <255 ) pointPairing = 0;
-  
+  if (pointPairing > 254) pointPairing = 1;
+  if (pointPairing < 255) pointPairing = 0;
+
   bool validation = true;
   if (moveSpeed < 1) {
     moveSpeed = 100;
@@ -509,16 +550,10 @@ void setup() {
     savePointValues();
   }
 
-  digitalWrite(CAL_LED, 1);
-  delay(500);
-  digitalWrite(CAL_LED, 0);
-  delay(500);
-  digitalWrite(CAL_LED, 1);
-  delay(500);
-  digitalWrite(CAL_LED, 0);
-  delay(500);
-  digitalWrite(CAL_LED, 1);
-  delay(500);
+  // digitalWrite(CAL_LED, 1);
+  // delay(500);
+  // digitalWrite(CAL_LED, 0);
+  // delay(500);
 
   Serial.println("\nPoint\tCurPos\tClosd\t  Swit\tThrwn ");
   for (int i = 0; i < NO_OF_POINTS; i++) {
@@ -538,6 +573,8 @@ void setup() {
   Serial.end();
   delay(1000);
   bus.begin(19200);
+  digitalWrite(CAL_LED, 0);
+ 
 
   while (digitalRead(ENCODER_PUSH) == 0) {}
   delay(100);
@@ -554,13 +591,15 @@ void loop() {
 
   readSwitches();
   //printTimeVars();
+  
   if (!cal) {
     moving = 0;
     for (int i = 0; i < NO_OF_POINTS; i++) {
       point[i].movePoint(i);
     }
-    if (!moving) getSetData();
+    if (!moving) i2cReadWrite();
   }
+   
   if (!changeMoveSpeed) {
     calibrate();
   } else {
