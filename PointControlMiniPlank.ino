@@ -19,7 +19,7 @@ const uint8_t ROW_PINS[] = { 6 };       //Arduino pin numbers for output switch 
 const uint8_t NO_OF_ROWS = 1;           //the number of rows the switches are matrix wired (see schematic)
 const uint8_t COL_PINS[] = { A1, A0 };  //Arduino pin numbers for analog input switch Matrix
 const uint8_t NO_OF_COLS = 2;           //the number of columns the switches are matrix wired (see schematic)
-const int8_t POINT_PAIRS[] = { 0, 0 };  // change the number in point number position. read notes above.
+const int8_t POINT_PAIRS[] = { 0, 0 };                                                                                                                                                                                                                                                                                                                                                                                                               // change the number in point number position. read notes above.
 const int TOP_PULSE_LEN = 2400;         // setting the maximum cw servo position(actual = 2500 but not all servos are the same)
 const int BOTTOM_PULSE_LEN = 600;       //setting the minimum ccw servo position
 bool pointPairing = 0;                  // Global pairing slave points with master points
