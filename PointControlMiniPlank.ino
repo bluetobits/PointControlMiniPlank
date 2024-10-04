@@ -8,6 +8,7 @@
 #include <LibPrintf.h>
 #include <CMRI.h>
 #include <Auto485.h>
+#include <avr/wdt.h>
 // pointPairing The master point of a point pair must be the point with the lower point number
 // the pointPairs position is the actual point, the number is the point that controls it.
 // multiple points can be controlled by 1 point, a negative number indicated the slave point is inverter.
@@ -19,15 +20,15 @@ const uint8_t ROW_PINS[] = { 6 };       //Arduino pin numbers for output switch 
 const uint8_t NO_OF_ROWS = 1;           //the number of rows the switches are matrix wired (see schematic)
 const uint8_t COL_PINS[] = { A1, A0 };  //Arduino pin numbers for analog input switch Matrix
 const uint8_t NO_OF_COLS = 2;           //the number of columns the switches are matrix wired (see schematic)
-const int8_t POINT_PAIRS[] = { 0, 0 };                                                                                                                                                                                                                                                                                                                                                                                                               // change the number in point number position. read notes above.
+const int8_t POINT_PAIRS[] = { 0, 0 };  // change the number in point number position. read notes above.
 const int TOP_PULSE_LEN = 2400;         // setting the maximum cw servo position(actual = 2500 but not all servos are the same)
 const int BOTTOM_PULSE_LEN = 600;       //setting the minimum ccw servo position
 bool pointPairing = 0;                  // Global pairing slave points with master points
-const uint8_t NO_OF_LEDS = 10;
+const uint8_t NO_OF_LEDS = 12;
 const uint8_t NO_OF_BLOCKS = 4;
 const uint8_t NO_OF_SENS = 4;
 // total number of WS2812b LEDS
-const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4 };  // the order of the leds. point 0 Closed, Point 0 Thrown, Point 1 closed, 1 thrown, etc the rest are sensors
+const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4,10,11};  // the order of the leds. point 0 Closed, Point 0 Thrown, Point 1 closed, 1 thrown, etc the rest are sensors
 
 // end of user settings
 
@@ -68,7 +69,7 @@ int incoming = 0;
 byte incomingSensors;
 // bits from JMRI data
 byte slaveAddress = 8;
-byte i2cError=255;
+byte i2cError = 255;
 
 // panel HID
 const uint8_t MOV_LED = 13;    // LED to denote points are moving
@@ -248,6 +249,7 @@ void pointMoveSpeed() {
         longPress = 1;
         digitalWrite(CAL_LED, 0);
       }
+       wdt_reset();  // Reset watchdog to prevent reset
     }
     if (longPress) {
       savePointValues();
@@ -363,8 +365,11 @@ void setLeds() {
       onHue = 220;
     }
     onLev = 0;
-    if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 100;
-    if(i2cError>0)onLev=flash;
+    if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 200;
+    if (i2cError > 0) {
+      onLev = flash*100;
+      onHue = 20;
+    }
     leds[LEDS_MIMIC[i]] = CHSV(onHue, onSat, onLev);
   }
   FastLED.show();
@@ -410,20 +415,25 @@ void calibrate() {
         longPress = 1;
         digitalWrite(CAL_LED, cal);  // turns on led if not calibrating, otherwise turns off led
       }
+       wdt_reset();  // Reset watchdog to prevent reset
     }            // released
     if (!cal) {  // IF NOT CALIBRATING and encoder pushed
 
       //OVERRIDING POINT PAIRING BY 3 FAST ENCODER PRESSES WHEN NOT CALIBRATING
       // //toggle point pairing and write to eeprom. Only possible if not calibrating.
       // //checking for a further 3 fast press/release within 3 seconds
-      while (millis() < timepressed + LONG_PUSH) {         // 3 seconds - can't be a long press
+      while (millis() < timepressed + LONG_PUSH/2) {         // 1.5 seconds - can't be a long press
         if (digitalRead(ENCODER_PUSH) == 0) pressCount++;  //count a press
-        while (digitalRead(ENCODER_PUSH) == 0) {}          //wait for release
-        delay(100);                                        //debounce
+        while (digitalRead(ENCODER_PUSH) == 0) {
+           wdt_reset();  // Reset watchdog to prevent reset
+        }          //wait for release
+        delay(100);   
+         wdt_reset();  // Reset watchdog to prevent reset                                     //debounce
       }                                                    // loop back for next fast press if there is time
 
-      if (pressCount >= 3) {
+      if (pressCount >= 2) {
         longPress = 0;  // just to be sure!
+        if (pressCount >= 5) while(true){}//reset using watchdog
         printf("pressCount = %d, changing pointPairing from %d to ", pressCount, pointPairing);
         pointPairing = !pointPairing;
         printf(" %d\n", pointPairing);
@@ -474,36 +484,234 @@ void calibrate() {
     }
   }
 }
+// void i2cBusRecovery() {
+//   pinMode(SCL, OUTPUT);
+//   for (int i = 0; i < 9; i++) {  // Generate 9 clock pulses to clear the bus
+//     digitalWrite(SCL, HIGH);
+//     delayMicroseconds(10);
+//     digitalWrite(SCL, LOW);
+//     delayMicroseconds(10);
+//   }
+//   Wire.begin();  // Reinitialize I2C
+// }
+// bool isI2CBusStuck() {
+//   pinMode(SDA, INPUT_PULLUP);
+//   pinMode(SCL, INPUT_PULLUP);
+
+//   if (digitalRead(SDA) == LOW || digitalRead(SCL) == LOW) {
+//     return true;  // I2C bus is stuck
+//   }
+//   return false;
+// }
+
+// void resetI2C() {
+//   Wire.end();    // End I2C communication
+//   delay(100);    // Small delay
+//   Wire.begin();  // Reinitialize I2C
+// }
 
 //==================================== I2C =====================////
-void i2cReadWrite() {
-  //adding i2c
-  // point arduino is the master, sensor arduino is the slave
-  // point arduino receives
-  //       16 sensors from slave,
-  //       16 points from JMRI
+// void advancedi2cReadWrite() {
 
-  
+//   // Check if the I2C bus is stuck before starting the transmission
+//   if (isI2CBusStuck()) {
+//     Serial.println("I2C bus stuck. Attempting recovery...");
+//     i2cBusRecovery();
+//     return;  // Exit to avoid hanging if bus recovery fails
+//   }
+
+//   // Attempt to communicate with the slave
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {        // Wait for data, with timeout
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();
+//     incoming = Wire.read();
+
+//     delay(100);  // Optional, depends on system timing requirements
+
+//     // Reset I2C bus if slave was recently reset and data transmission fails
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//     resetI2C();  // Reset the I2C bus if any error occurs
+//   }
+// }
+
+// void VeryRecenti2cReadWrite() {
+//   static int charcount = 0;
+
+//   if (isI2CBusStuck()) {
+//     Serial.println("I2C bus stuck. Attempting recovery...");
+//     i2cBusRecovery();
+//     return;  // Exit to avoid hanging
+//   }
+//   //printf("starting transmission... ");
+//   Wire.beginTransmission(slaveAddress);
+//   //printf("NOW\n");
+
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (charcount++ < 50) {
+//     printf("%d", i2cError);
+
+//   } else {
+//     printf("\n");
+//     charcount = 0;
+//   }
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {  // Wait for data, with timeout
+//       printf("not enough chars");
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();
+//     incoming = Wire.read();
+//     printf(" reading  2   ");
+//     delay(100);  // Optional, depends on system timing requirements
+//     Wire.beginTransmission(slaveAddress);
+//     delay(1000);
+//     if (isI2CBusStuck()) {
+//       Serial.println("I2C bus stuck. Attempting recovery...");
+//       i2cBusRecovery();
+//     }
+
+//     printf(" about to write 2   ");
+
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+//     printf(" ended %d\n", i2cError);
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//     resetI2C();  // Reset the I2C bus
+//   }
+// }
+
+// void singlei2cReadWrite() {
+
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave device
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {        // Wait for data, with timeout
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();  //<< 8 | Wire.read();
+//     incoming = Wire.read();         // << 8 | Wire.read();
+
+//     // Now send data to the slave
+//     delay(100);  // Optional, depends on system timing requirements
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//   }
+// }
+
+// void originali2cReadWrite() {
+
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (i2cError == 0) {
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.requestFrom(slaveAddress, 2);  // request 4 bytes from slave device #8
+//     if (Wire.available() == 2) {        //
+//       incomingSensors = Wire.read();    //<< 8 | Wire.read();
+//       incoming = Wire.read();           // << 8 | Wire.read();
+//       //Serial.print(" incoming Sensors = ");
+//       //Serial.println(incomingSensors,BIN);
+//     }
+//     i2cError = Wire.endTransmission();
+
+//     //point Arduino sends swStatus to slave
+//     delay(100);
+//     if (i2cError == 0) {
+//       Wire.beginTransmission(slaveAddress);
+//       Wire.write(highByte(swStatus));  // Send high byte
+//       Wire.write(lowByte(swStatus));   // Send low byte
+
+//       Wire.endTransmission();
+//     }
+//   }
+//   // printf("i2cError code = %d\n",i2cError);
+// }
+void i2cReadWrite() {
+
   Wire.beginTransmission(slaveAddress);
   i2cError = Wire.endTransmission();  // Check for errors
   if (i2cError == 0) {
-    Wire.requestFrom(slaveAddress, 2);  // request 4 bytes from slave device #8
-    if (Wire.available() == 2) {        //
-      incomingSensors = Wire.read();    //<< 8 | Wire.read();
-      incoming = Wire.read();           // << 8 | Wire.read();
-      //Serial.print(" incoming Sensors = ");
-      //Serial.println(incomingSensors,BIN);
+    Wire.requestFrom(slaveAddress, 4);  // Request 16 bits for sensors from Arduino and 16 JMRI point settings
+    unsigned long startTime = millis();
+    while (Wire.available() < 4) {        // Wait for data, with timeout
+      if (millis() - startTime > 1000) {  // 1-second timeout
+        Serial.println("Timeout waiting for slave response.");
+        return;  // Exit the function to avoid hanging
+      }
     }
 
-    //point Arduino sends swStatus to slave
-    delay(100);
-    Wire.beginTransmission(slaveAddress);
-    Wire.write(highByte(swStatus));  // Send high byte
-    Wire.write(lowByte(swStatus));   // Send low byte
+    // Read incoming data if available
+    incomingSensors = Wire.read() << 8 | Wire.read();
+    incoming = Wire.read() << 8 | Wire.read();
 
-    Wire.endTransmission();
+    // Now send data to the slave
+    delay(100);  // Optional, depends on system timing requirements
+    Wire.beginTransmission(slaveAddress);
+    Wire.write(highByte(swStatus));     // Send high byte
+    Wire.write(lowByte(swStatus));      // Send low byte
+    i2cError = Wire.endTransmission();  // Check for errors
+
+    if (i2cError != 0) {
+      Serial.print("Error writing to slave. I2C Error code: ");
+      Serial.println(i2cError);
+    }
+  } else {
+    Serial.print("Error communicating with slave. I2C Error code: ");
+    Serial.println(i2cError);
   }
- // printf("i2cError code = %d\n",i2cError);
 }
 
 
@@ -515,7 +723,7 @@ void setup() {
   servo.begin();
   servo.setPWMFreq(50);
   yield();
-  Wire.begin();
+
   printf("\npointControlMERG3 Steve Lomax 22/08/24 Free for personal use.\n");
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NO_OF_LEDS);
 
@@ -538,16 +746,13 @@ void setup() {
     moveSpeed = 100;
     validation = 0;
   }
-  // if (pointPairing != 0) {
-  //   pointPairing = 1;
-  //   validation = 0;
-  // }
+  
 
   for (int i = 0; i < NO_OF_POINTS; i++) {
     if (point[i].thrownPos < BOTTOM_PULSE_LEN || point[i].thrownPos > TOP_PULSE_LEN) {
       point[i].thrownPos = 2000;
       validation = false;
-    }
+    }                          
     if (point[i].closedPos < BOTTOM_PULSE_LEN || point[i].closedPos > TOP_PULSE_LEN) {
       point[i].closedPos = 2000;
       validation = false;
@@ -557,7 +762,7 @@ void setup() {
     savePointValues();
   }
 
-  // digitalWrite(CAL_LED, 1);
+  digitalWrite(CAL_LED, 1);
   // delay(500);
   // digitalWrite(CAL_LED, 0);
   // delay(500);
@@ -578,13 +783,17 @@ void setup() {
   }
   Serial.println("\ndone setup");
   Serial.end();
-  delay(1000);
+  //delay(1000);
   bus.begin(19200);
-  digitalWrite(CAL_LED, 0);
+  // digitalWrite(CAL_LED, 1);
+  // delay(400);
 
 
   while (digitalRead(ENCODER_PUSH) == 0) {}
-  delay(100);
+
+  // Enable watchdog with a 2-second timeout
+  wdt_enable(WDTO_2S);
+  Wire.begin();
 }
 
 
@@ -593,6 +802,7 @@ void setup() {
 //===================== LOOP ===============================================
 //==========================================================================
 void loop() {
+  wdt_reset();  // Reset watchdog to prevent reset
   //testLeds();
   //timeNow = millis();
 
