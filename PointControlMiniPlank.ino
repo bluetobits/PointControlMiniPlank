@@ -28,7 +28,7 @@ const uint8_t NO_OF_LEDS = 12;
 const uint8_t NO_OF_BLOCKS = 4;
 const uint8_t NO_OF_SENS = 4;
 // total number of WS2812b LEDS
-const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4,10,11};  // the order of the leds. point 0 Closed, Point 0 Thrown, Point 1 closed, 1 thrown, etc the rest are sensors
+const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4, 10, 11 };  // the order of the leds. point 0 Closed, Point 0 Thrown, Point 1 closed, 1 thrown, etc the rest are sensors
 
 // end of user settings
 
@@ -249,7 +249,7 @@ void pointMoveSpeed() {
         longPress = 1;
         digitalWrite(CAL_LED, 0);
       }
-       wdt_reset();  // Reset watchdog to prevent reset
+      wdt_reset();  // Reset watchdog to prevent reset
     }
     if (longPress) {
       savePointValues();
@@ -291,10 +291,19 @@ send 16 bits of point data
 s
 */
 void getSetData() {
+  int oldincoming = incoming;
+  incoming = 0;
   cmri.process();                           // get JMRI data via CMRI bits
   for (int i = 0; i < NO_OF_POINTS; i++) {  // just using 16 outputs
     incoming |= cmri.get_bit(i) << i;       // get new incoming status for point positions
     cmri.set_bit(i, point[i].swPos);        //set CMRI bits
+  }
+  if (oldincoming != incoming) {
+
+    Serial.print("\nincoming = ");
+    Serial.println(incoming, BIN);
+    Serial.print("outgoing = ");
+    Serial.println(swStatus, BIN);
   }
 }
 
@@ -367,7 +376,7 @@ void setLeds() {
     onLev = 0;
     if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 200;
     if (i2cError > 0) {
-      onLev = flash*100;
+      onLev = flash * 100;
       onHue = 20;
     }
     leds[LEDS_MIMIC[i]] = CHSV(onHue, onSat, onLev);
@@ -415,25 +424,26 @@ void calibrate() {
         longPress = 1;
         digitalWrite(CAL_LED, cal);  // turns on led if not calibrating, otherwise turns off led
       }
-       wdt_reset();  // Reset watchdog to prevent reset
-    }            // released
-    if (!cal) {  // IF NOT CALIBRATING and encoder pushed
+      wdt_reset();  // Reset watchdog to prevent reset
+    }               // released
+    if (!cal) {     // IF NOT CALIBRATING and encoder pushed
 
       //OVERRIDING POINT PAIRING BY 3 FAST ENCODER PRESSES WHEN NOT CALIBRATING
       // //toggle point pairing and write to eeprom. Only possible if not calibrating.
       // //checking for a further 3 fast press/release within 3 seconds
-      while (millis() < timepressed + LONG_PUSH/2) {         // 1.5 seconds - can't be a long press
+      while (millis() < timepressed + LONG_PUSH / 2) {     // 1.5 seconds - can't be a long press
         if (digitalRead(ENCODER_PUSH) == 0) pressCount++;  //count a press
         while (digitalRead(ENCODER_PUSH) == 0) {
-           wdt_reset();  // Reset watchdog to prevent reset
-        }          //wait for release
-        delay(100);   
-         wdt_reset();  // Reset watchdog to prevent reset                                     //debounce
-      }                                                    // loop back for next fast press if there is time
+          wdt_reset();  // Reset watchdog to prevent reset
+        }               //wait for release
+        delay(100);
+        wdt_reset();  // Reset watchdog to prevent reset                                     //debounce
+      }               // loop back for next fast press if there is time
 
       if (pressCount >= 2) {
         longPress = 0;  // just to be sure!
-        if (pressCount >= 5) while(true){}//reset using watchdog
+        if (pressCount >= 5)
+          while (true) {}  //reset using watchdog
         printf("pressCount = %d, changing pointPairing from %d to ", pressCount, pointPairing);
         pointPairing = !pointPairing;
         printf(" %d\n", pointPairing);
@@ -457,7 +467,7 @@ void calibrate() {
     }
   }
   if (cal) {  // at any time
-
+    static uint8_t pointNum;
     int32_t move = (encoder.read() - encoderPos);            //current value - old value
     if (move != 0 || oldLastPointMoved != lastPointMoved) {  //there has been an encoder move since last pass (could be -ve) or new point switched
       encoder.write(0);                                      // reset encoder
@@ -481,6 +491,12 @@ void calibrate() {
         printf("Cal point %d : closed pos = %d \n", pointNum, point[pointNum].closedPos);
       }
       oldLastPointMoved = lastPointMoved;
+    }
+
+    if (point[pointNum].curPos == BOTTOM_PULSE_LEN || point[pointNum].curPos == TOP_PULSE_LEN) {
+      digitalWrite(CAL_LED, flash);
+    } else {
+      digitalWrite(CAL_LED, 1);
     }
   }
 }
@@ -746,13 +762,13 @@ void setup() {
     moveSpeed = 100;
     validation = 0;
   }
-  
+
 
   for (int i = 0; i < NO_OF_POINTS; i++) {
     if (point[i].thrownPos < BOTTOM_PULSE_LEN || point[i].thrownPos > TOP_PULSE_LEN) {
       point[i].thrownPos = 2000;
       validation = false;
-    }                          
+    }
     if (point[i].closedPos < BOTTOM_PULSE_LEN || point[i].closedPos > TOP_PULSE_LEN) {
       point[i].closedPos = 2000;
       validation = false;
@@ -805,7 +821,9 @@ void loop() {
   wdt_reset();  // Reset watchdog to prevent reset
   //testLeds();
   //timeNow = millis();
-
+  if (oldswStatus != swStatus) {
+    printOutData();
+  }
   readSwitches();
   //printTimeVars();
 
@@ -814,7 +832,10 @@ void loop() {
     for (int i = 0; i < NO_OF_POINTS; i++) {
       point[i].movePoint(i);
     }
-    if (!moving) i2cReadWrite();
+    if (!moving) {
+      //getSetData();
+      i2cReadWrite();
+    }
   }
 
   if (!changeMoveSpeed) {
@@ -822,11 +843,5 @@ void loop() {
   } else {
     pointMoveSpeed();
   }
-
-  if (oldswStatus != swStatus) {
-    printOutData();
-    oldswStatus = swStatus;
-  }
-
   setLeds();
 }
