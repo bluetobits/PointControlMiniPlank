@@ -12,46 +12,8 @@
 // pointPairing The master point of a point pair must be the point with the lower point number
 // the pointPairs position is the actual point, the number is the point that controls it.
 // multiple points can be controlled by 1 point, a negative number indicated the slave point is inverter.
-/*pressing the encoder enters and exits different functions:
-1 long press > 3s = ENTER CALIBRATION. 
-    change switch position to change point under calibration
-    move encoder to adjust position
-    1 long press saves all new positions and exit calibration
-    1 short press undo changes and exit calibration
-2 short presses in 3s Toggles POINT SLAVE GROUPING on/off
-3 short presses in 3s Toggles CENTRE SERVO POSITION
-    move a switch to centre that servo
-4 short presses in 3s SET MOVE SPEED or hold in encoder while resetting
-    adjust encoder to increase or decrease servo speed
-    move a point to view the current speed setting
-    1 long press saves new move speed and exit
-    1 short press undo changes and exit 
-5 short presses in 3s - reset switch panel & reboot in 2 seconds
+//
 
-indicators:
-POINTS
-GREEN  = This point branch selected
-RED = This point brance deselected
-CYAN = This slave point (grouped) branch is selected
-ORANGE = This slave point (grouped) branch is deselected
-BLUE FLASHING = this point is moving
-ALTERNATING FLASHING = under auto control
-PURPLE = this point setting is under calibration
-YELLOW FLASHING = servo in centre position
-
-SENSORS
-PINK = track block occupied
-YELLOW = stop sensor activated
-ORANGE FLASHING = lost communication with sensor module / error 
-
-
-
-
-
-
-
-
-*/
 // SWITCHING DATA CHANGE ALL CAPITALISED VALUES TO SUIT
 const uint8_t NO_OF_POINTS = 2;         // no of szwitches / points on the switch panel
 const uint8_t ROW_PINS[] = { 6 };       //Arduino pin numbers for output switch Matrix
@@ -70,7 +32,7 @@ const uint8_t LEDS_MIMIC[] = { 2, 6, 7, 8, 1, 3, 9, 5, 0, 4, 10, 11 };  // the o
 
 // end of user settings
 
-int moveSpeed = 4;           //Global. point move speed
+int moveSpeed = 100;         //Global. point move speed
 bool moving = 0;             //Global. at least one  pooint is moving
 bool cal = 0;                //Global. calibrating  status
 uint16_t swStatus = 0;       //Global. 16 bits showing switch status
@@ -115,7 +77,7 @@ const uint8_t CAL_LED = 11;    // LED to denote in calibration mode
 const uint8_t DATA_PIN = 10;   // neopixels data connect from here via 50 ohm resistor
 const int LONG_PUSH = 3000;    // the "long push" duration of encoder button
 bool changeMoveSpeed = false;  // flag to idnicate push is held in from startup
-bool centreServo = false;      // flag to indicate servo centre mode
+
 //Initialisation
 CRGB leds[NO_OF_LEDS];  //LED neopixel strip
 Adafruit_PWMServoDriver servo = Adafruit_PWMServoDriver();
@@ -150,76 +112,34 @@ struct Points {  // each point has these properties and method
   bool autoControl = 0;  // from JMRI
 
   void movePoint(int index) {
-
     //moving = 0;
-    if (swPos) {  // if target is thrown
-      if (curPos != thrownPos) {
-        increment(thrownPos, index);
+    if (swPos) {                                     // if target is thrown
+      if (curPos != thrownPos) {                     //if point is not at target not at target
+        if (abs(curPos - thrownPos) <= moveSpeed) {  // if within MOVE_STEP
+          curPos = thrownPos;
+        } else if (curPos < thrownPos) {
+          curPos += moveSpeed;
+        } else {
+          curPos -= moveSpeed;
+        }
+        servo.writeMicroseconds(index, curPos);  //move servo
+        moving = 1;
       }
-    } else {
-      if (curPos != closedPos) {
-        increment(closedPos, index);
+    } else {                      // target is closed
+      if (curPos != closedPos) {  // if not yet at target
+        if (abs(curPos - closedPos) <= moveSpeed) {
+          curPos = closedPos;
+        } else if (curPos < closedPos) {
+          curPos += moveSpeed;
+        } else {
+          curPos -= moveSpeed;
+        }
+        servo.writeMicroseconds(index, curPos);  //move servo
+        moving = 1;
       }
     }
-  }
-  void increment(int newPos, int index) {
-
-    int totDist = thrownPos - closedPos;
-    totDist = abs(totDist);
-    int dtg = curPos - newPos;
-    int incMove = totDist / 300 * moveSpeed;
-    if (abs(dtg) <= incMove) {  // if within MOVE_STEP
-      curPos = newPos;
-      printf("moved %d distance %d at speed %d\n ", index, totDist, incMove);
-    } else if (curPos < newPos) {
-      curPos += incMove;
-    } else {
-      curPos -= incMove;
-    }
-    servo.writeMicroseconds(index, curPos);  //move servo
-    moving = 1;
   }
 };
-// void movePoint(int index) {
-//   int dtg;
-//   int totDist;
-//   //moving = 0;
-//   if (swPos) {  // if target is thrown
-//     if (curPos != thrownPos) {
-//       //if point is not at target not at target
-//       totDist = thrownPos - closedPos;
-//       totDist = abs(totDist);
-//       dtg = curPos - thrownPos;
-//       if (abs(dtg) <= moveSpeed) {  // if within MOVE_STEP
-//         curPos = thrownPos;
-//         printf("thrown %d distance %d at speed %d\n ", index, totDist,moveSpeed);
-//       } else if (curPos < thrownPos) {
-//         curPos += moveSpeed;
-//       } else {
-//         curPos -= moveSpeed;
-//       }
-//       servo.writeMicroseconds(index, curPos);  //move servo
-//       moving = 1;
-//     }
-//   } else {                      // target is closed
-//     if (curPos != closedPos) {  // if not yet at target
-//     totDist = thrownPos - closedPos;
-//       totDist = abs(totDist);
-//       dtg = curPos - closedPos;
-//       if (abs(dtg) <= moveSpeed) {
-//         curPos = closedPos;
-//         printf("closed %d Distance %d at speed %d\n ", index, totDist,moveSpeed);
-//       } else if (curPos < closedPos) {
-//         curPos += moveSpeed;
-//       } else {
-//         curPos -= moveSpeed;
-//       }
-//       servo.writeMicroseconds(index, curPos);  //move servo
-//       moving = 1;
-//     }
-//   }
-// }
-
 
 Points point[NO_OF_POINTS];
 
@@ -258,14 +178,13 @@ void printTimeVars() {
 
 //============================== READ SWITCH POSITIONS =================
 void readSwitches() {
-  oldswStatus = swStatus;
   swStatus = 0;  // Clear previous value
 
   for (int row = 0; row < NO_OF_ROWS; row++) {    // iterate through all 4 switch rows.
     digitalWrite(ROW_PINS[row], HIGH);            // set the current row high
     for (int col = 0; col < NO_OF_COLS; col++) {  //iterate through all 4 switch cols.
       bool curPointStatus;                        // temp store the current point switch pos before reading in the new status
-      int i = (row * NO_OF_ROWS) + col;           // set i for each switch counting across rows for each columns
+      int i = row * NO_OF_ROWS + col;             // set i for each switch counting across rows for each columns
       curPointStatus = point[i].swPos;            // temp save old switch position to see if it will change for calibrating
       int swIn = analogRead(COL_PINS[col]);       // read the value of each col
 
@@ -313,11 +232,11 @@ void pointMoveSpeed() {
   digitalWrite(CAL_LED, flash);
   if (encoderPos > 3) {
     moveSpeed++;
-    printf("move speed rising to %d\n", moveSpeed);
+    printf("move speed = %d\n", moveSpeed);
     encoder.write(0);
   } else if (encoderPos < -3) {
-    if (moveSpeed > 1) moveSpeed--;
-    printf("move speed falling to %d\n", moveSpeed);
+    if (moveSpeed > 0) moveSpeed--;
+    printf("move speed = %d\n", moveSpeed);
     encoder.write(0);
   }
 
@@ -350,21 +269,17 @@ void printOutData() {
     } else {
       printf(" P%d", i);
     }
-    if (point[i].curPos != point[i].closedPos && point[i].swPos == 0) {
-      printf("   point %d is at %d closing to %d \n", i, point[i].curPos, point[i].closedPos);
-    } else if (point[i].curPos != point[i].thrownPos && point[i].swPos == 1) {
-      printf("   point %d is at %d throwing to %d \n", i, point[i].curPos, point[i].thrownPos);
+    if (point[i].curPos != point[i].closedPos || point[i].curPos != point[i].thrownPos) {
+      printf("   point %d is moving to %d ", i, point[i].curPos);
     }
   }
-
-  if (moving) {
-    for (int i = 0; i < NO_OF_POINTS; i++) {
-      printf("  %d  ", point[i].swPos);
-    }
-    //int temp = lastPointMoved / 2 + lastPointMoved % 2;
-    printf(" last point moved = %d ", lastPointMoved);
-    printf("\n");
+  printf("\n");
+  for (int i = 0; i < NO_OF_POINTS; i++) {
+    printf("  %d  ", point[i].swPos);
   }
+  int temp = lastPointMoved / 2 + lastPointMoved % 2;
+  printf(" last point moved = %d ", lastPointMoved);
+  printf("\n");
 }
 
 //=========================== GET & SET DATA FROM JMRI/CMRI==================
@@ -451,24 +366,15 @@ void setLeds() {
         //printf("ledsMimic number thrown for point = %d is %d\n", lastPointMoved-NO_OF_POINTS, LEDS_MIMIC[ledatlpm]);
       }
     }
-    if (centreServo) {
-      int ledatlpm = lastPointMoved * 2;
-      if (lastPointMoved >= NO_OF_POINTS) {
-        ledatlpm = ((lastPointMoved - NO_OF_POINTS) * 2);
-      }
-      onLev = flash * 200;
-      leds[LEDS_MIMIC[ledatlpm]] = CHSV(60, onSat, onLev);      // YELLOW
-      leds[LEDS_MIMIC[ledatlpm + 1]] = CHSV(60, onSat, onLev);  // YELLOW
-    }
   }
   byte sensStarti = NO_OF_POINTS * 2;
   for (uint8_t i = sensStarti; i < NO_OF_LEDS; i++) {
     onHue = 60;
     if (i < NO_OF_BLOCKS + sensStarti) {
-      onHue = 230;
+      onHue = 220;
     }
     onLev = 0;
-    if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 230;
+    if ((incomingSensors >> (i - sensStarti)) & 1) onLev = 200;
     if (i2cError > 0) {
       onLev = flash * 100;
       onHue = 20;
@@ -512,7 +418,6 @@ void calibrate() {
   int pressCount = 0;
 
   if (digitalRead(ENCODER_PUSH) == 0) {  // it's a press
-    pressCount++;
     unsigned long timepressed = millis();
     while (digitalRead(ENCODER_PUSH) == 0) {
       if (millis() - timepressed > LONG_PUSH) {  // long press
@@ -531,21 +436,17 @@ void calibrate() {
         while (digitalRead(ENCODER_PUSH) == 0) {
           wdt_reset();  // Reset watchdog to prevent reset
         }               //wait for release
-        delay(10);
-        //wdt_reset();  // Reset watchdog to prevent reset                                     //debounce
-      }  // loop back for next fast press if there is time
-      if (pressCount >= 5)
-        while (true) {}       //reset using watchdog reboots. no exit necessary
-      if (pressCount >= 4){ // change movespeed
-      changeMoveSpeed = true;
+        delay(100);
+        wdt_reset();  // Reset watchdog to prevent reset                                     //debounce
+      }               // loop back for next fast press if there is time
 
-      } else if (pressCount >= 3 && !changeMoveSpeed) {  //centre servos
-        centreServo = !centreServo;
-        printf("pressCount = %d, changing servo centering to  %d\n", pressCount, centreServo);
-      } else if (pressCount >= 2 && !changeMoveSpeed && !centreServo) {
+      if (pressCount >= 2) {
         longPress = 0;  // just to be sure!
+        if (pressCount >= 5)
+          while (true) {}  //reset using watchdog
+        printf("pressCount = %d, changing pointPairing from %d to ", pressCount, pointPairing);
         pointPairing = !pointPairing;
-        printf("pressCount = %d, changing pointPairing to %d\n", pressCount, pointPairing);
+        printf(" %d\n", pointPairing);
         savePointValues();  // should only write pointPairing as no point calibration positions have changed.
       }
       //printf("pressCount = %d, pointPairing = %d\n", pressCount, pointPairing);
@@ -569,9 +470,8 @@ void calibrate() {
     static uint8_t pointNum;
     int32_t move = (encoder.read() - encoderPos);            //current value - old value
     if (move != 0 || oldLastPointMoved != lastPointMoved) {  //there has been an encoder move since last pass (could be -ve) or new point switched
-      move *= 4;
-      encoder.write(0);  // reset encoder
-                         // this is the point number extracted from lastPointMoved
+      encoder.write(0);                                      // reset encoder
+      uint8_t pointNum;                                      // this is the point number extracted from lastPointMoved
 
       if (lastPointMoved >= NO_OF_POINTS) {        // this is a point set at thrown
         pointNum = lastPointMoved - NO_OF_POINTS;  // taking 16 of this number
@@ -600,28 +500,201 @@ void calibrate() {
     }
   }
 }
+// void i2cBusRecovery() {
+//   pinMode(SCL, OUTPUT);
+//   for (int i = 0; i < 9; i++) {  // Generate 9 clock pulses to clear the bus
+//     digitalWrite(SCL, HIGH);
+//     delayMicroseconds(10);
+//     digitalWrite(SCL, LOW);
+//     delayMicroseconds(10);
+//   }
+//   Wire.begin();  // Reinitialize I2C
+// }
+// bool isI2CBusStuck() {
+//   pinMode(SDA, INPUT_PULLUP);
+//   pinMode(SCL, INPUT_PULLUP);
 
-//================================= setServoCentre ========================================
-void setServoCentre() {
-  //if (oldswStatus != swStatus) {
-    int lpm = lastPointMoved;
-    if (lastPointMoved >= NO_OF_POINTS) {
-      lpm = ((lastPointMoved - NO_OF_POINTS));
-    }
-    for (int i = 0; i < NO_OF_POINTS; i++) {
-      if (i == lpm) {
-        servo.writeMicroseconds(lpm, 1500);  //move servo
-        point[lpm].curPos = 1500;
-      } else {
-        point[i].movePoint(i);
-      }
-    }
-    printf("Centering point %d\n", lpm);
- // }
-}
+//   if (digitalRead(SDA) == LOW || digitalRead(SCL) == LOW) {
+//     return true;  // I2C bus is stuck
+//   }
+//   return false;
+// }
 
-//================================= i2cReadWrite ========================================
+// void resetI2C() {
+//   Wire.end();    // End I2C communication
+//   delay(100);    // Small delay
+//   Wire.begin();  // Reinitialize I2C
+// }
 
+//==================================== I2C =====================////
+// void advancedi2cReadWrite() {
+
+//   // Check if the I2C bus is stuck before starting the transmission
+//   if (isI2CBusStuck()) {
+//     Serial.println("I2C bus stuck. Attempting recovery...");
+//     i2cBusRecovery();
+//     return;  // Exit to avoid hanging if bus recovery fails
+//   }
+
+//   // Attempt to communicate with the slave
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {        // Wait for data, with timeout
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();
+//     incoming = Wire.read();
+
+//     delay(100);  // Optional, depends on system timing requirements
+
+//     // Reset I2C bus if slave was recently reset and data transmission fails
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//     resetI2C();  // Reset the I2C bus if any error occurs
+//   }
+// }
+
+// void VeryRecenti2cReadWrite() {
+//   static int charcount = 0;
+
+//   if (isI2CBusStuck()) {
+//     Serial.println("I2C bus stuck. Attempting recovery...");
+//     i2cBusRecovery();
+//     return;  // Exit to avoid hanging
+//   }
+//   //printf("starting transmission... ");
+//   Wire.beginTransmission(slaveAddress);
+//   //printf("NOW\n");
+
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (charcount++ < 50) {
+//     printf("%d", i2cError);
+
+//   } else {
+//     printf("\n");
+//     charcount = 0;
+//   }
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {  // Wait for data, with timeout
+//       printf("not enough chars");
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();
+//     incoming = Wire.read();
+//     printf(" reading  2   ");
+//     delay(100);  // Optional, depends on system timing requirements
+//     Wire.beginTransmission(slaveAddress);
+//     delay(1000);
+//     if (isI2CBusStuck()) {
+//       Serial.println("I2C bus stuck. Attempting recovery...");
+//       i2cBusRecovery();
+//     }
+
+//     printf(" about to write 2   ");
+
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+//     printf(" ended %d\n", i2cError);
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//     resetI2C();  // Reset the I2C bus
+//   }
+// }
+
+// void singlei2cReadWrite() {
+
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (i2cError == 0) {
+//     Wire.requestFrom(slaveAddress, 2);  // Request 2 bytes from slave device
+//     unsigned long startTime = millis();
+//     while (Wire.available() < 2) {        // Wait for data, with timeout
+//       if (millis() - startTime > 1000) {  // 1-second timeout
+//         Serial.println("Timeout waiting for slave response.");
+//         return;  // Exit the function to avoid hanging
+//       }
+//     }
+
+//     // Read incoming data if available
+//     incomingSensors = Wire.read();  //<< 8 | Wire.read();
+//     incoming = Wire.read();         // << 8 | Wire.read();
+
+//     // Now send data to the slave
+//     delay(100);  // Optional, depends on system timing requirements
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.write(highByte(swStatus));     // Send high byte
+//     Wire.write(lowByte(swStatus));      // Send low byte
+//     i2cError = Wire.endTransmission();  // Check for errors
+
+//     if (i2cError != 0) {
+//       Serial.print("Error writing to slave. I2C Error code: ");
+//       Serial.println(i2cError);
+//     }
+//   } else {
+//     Serial.print("Error communicating with slave. I2C Error code: ");
+//     Serial.println(i2cError);
+//   }
+// }
+
+// void originali2cReadWrite() {
+
+//   Wire.beginTransmission(slaveAddress);
+//   i2cError = Wire.endTransmission();  // Check for errors
+//   if (i2cError == 0) {
+//     Wire.beginTransmission(slaveAddress);
+//     Wire.requestFrom(slaveAddress, 2);  // request 4 bytes from slave device #8
+//     if (Wire.available() == 2) {        //
+//       incomingSensors = Wire.read();    //<< 8 | Wire.read();
+//       incoming = Wire.read();           // << 8 | Wire.read();
+//       //Serial.print(" incoming Sensors = ");
+//       //Serial.println(incomingSensors,BIN);
+//     }
+//     i2cError = Wire.endTransmission();
+
+//     //point Arduino sends swStatus to slave
+//     delay(100);
+//     if (i2cError == 0) {
+//       Wire.beginTransmission(slaveAddress);
+//       Wire.write(highByte(swStatus));  // Send high byte
+//       Wire.write(lowByte(swStatus));   // Send low byte
+
+//       Wire.endTransmission();
+//     }
+//   }
+//   // printf("i2cError code = %d\n",i2cError);
+// }
 void i2cReadWrite() {
 
   Wire.beginTransmission(slaveAddress);
@@ -667,7 +740,7 @@ void setup() {
   servo.setPWMFreq(50);
   yield();
 
-  printf("\npointControlMiniplank Steve Lomax 12/10/24 Free for personal use.\n");
+  printf("\npointControlMERG3 Steve Lomax 22/08/24 Free for personal use.\n");
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NO_OF_LEDS);
 
   for (int i = 0; i < NO_OF_ROWS; i++) {
@@ -704,49 +777,6 @@ void setup() {
   if (!validation) {
     savePointValues();
   }
-  Wire.begin();
-  Serial.println("Scanning for I2C Devices...");
-  byte error, address;
-  int nDevices;
-  for (address = 1; address < 127; address++) {
-    //communicate with each address
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16)
-        Serial.print("0");
-      Serial.print(address, HEX);
-      if (address == slaveAddress) Serial.print(" sensor Arduino");
-      else if (address == 0x40) Serial.print(" PCA9685 servo driver ");
-      else Serial.print(" unknown device");
-
-      Serial.println(" !");
-
-      nDevices++;
-    } else if (error == 4) {
-      Serial.print("device error at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-        Serial.println(address, HEX);
-      }
-    }
-  }
-  if (nDevices == 0) {
-    Serial.println("No I2C devices found\n");
-  } else {
-    Serial.println("Scan done\n");
-  }
-
-  readSwitches();
-  for (int i = 0; i < NO_OF_POINTS; i++) {
-    if (point[i].swPos == 1) {
-      point[i].curPos = point[i].thrownPos;
-    } else {
-      point[i].curPos = point[i].closedPos;
-    }
-  }
-
 
   digitalWrite(CAL_LED, 1);
   // delay(500);
@@ -761,7 +791,7 @@ void setup() {
   printf("moveSpeed = %d\n", moveSpeed);
   printf("pointPairing = %d\n", pointPairing);
 
-  //moveSpeed = 100;
+
   if (digitalRead(ENCODER_PUSH) == 0) {
     changeMoveSpeed = true;
     encoder.write(0);
@@ -779,6 +809,7 @@ void setup() {
 
   // Enable watchdog with a 2-second timeout
   wdt_enable(WDTO_2S);
+  Wire.begin();
 }
 
 
@@ -790,27 +821,24 @@ void loop() {
   wdt_reset();  // Reset watchdog to prevent reset
   //testLeds();
   //timeNow = millis();
-  if (oldswStatus != swStatus) {  // if there has been a switch change
+  if (oldswStatus != swStatus) {
     printOutData();
   }
   readSwitches();
   //printTimeVars();
-  if (centreServo) {  //if in centre servo mode(enc pressed 4 times)
-    setServoCentre();
-  } else {
-    if (!cal) {    //if not in calibration or in centreServo mode
-      moving = 0;  // initialise here. moving will be changed in the point struct if any point moves
-      for (int i = 0; i < NO_OF_POINTS; i++) {
-        point[i].movePoint(i);
-      }
-      if (!moving) {  // keeps moving smooth so that cmri poll doesnt slow it down
-        //getSetData();
-        i2cReadWrite();
-      }
+
+  if (!cal) {
+    moving = 0;
+    for (int i = 0; i < NO_OF_POINTS; i++) {
+      point[i].movePoint(i);
+    }
+    if (!moving) {
+      //getSetData();
+      i2cReadWrite();
     }
   }
 
-  if (!changeMoveSpeed) {  // not changing the move speed
+  if (!changeMoveSpeed) {
     calibrate();
   } else {
     pointMoveSpeed();
