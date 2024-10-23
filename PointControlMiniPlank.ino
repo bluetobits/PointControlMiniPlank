@@ -143,6 +143,7 @@ MemStruct memData;
 
 
 struct Points {  // each point has these properties and method
+
   int closedPos = 1000;
   int thrownPos = 2000;
   int curPos = 1000;
