@@ -2,12 +2,12 @@
 #include <Wire.h>
 #include <CMRI.h>
 #include <Auto485.h>
-const int SENSOR_PIN[] = { 3, 4, 5, 6, A2, A3, A6, A7 };
-// remove pin 2 from the end of this line and replace with 13 for RS485 comms.
-// the sensors will have to be paied when connected to JMRI
-const int OUTPUT_PIN[] = { 7, 8, 9, 10, 11, 12 };
-const int POINTOUT_PIN[] = { A0, A1 };
-const int POINTIN_PIN[] = { 13, 2 };
+const int SENSOR_PIN[] = { 3, 4, 5, 6, A2, A3, A6, A7 }; // From sensors also connect A6 & A7 to JMRI MEGA pins 37 & 39
+const int OUTPUT_PIN[] = { 7, 8, 9, 10, 11, 12 };// // to JMRI MEGA pins 25,27,29,31,33,35
+const int POINTIN_PIN[] = {14, 15 }; // from JMRI MEGA pins 41 & 43
+const int POINTOUT_PIN[] = {13,2}; // to JMRI MEGA pins 45 & 47
+
+
 
 bool BlockNo[4];
 bool SpotNo[4];
@@ -140,17 +140,28 @@ void readSensors() {
   //printf("\n");
 }
 void sendSwitchestoJMRI() {
-  digitalWrite(POINTIN_PIN[0], swStatus & 0b1);
-  digitalWrite(POINTIN_PIN[1], swStatus & 0b10);
+  digitalWrite(POINTOUT_PIN[0], swStatus & 0b1);
+  digitalWrite(POINTOUT_PIN[1], swStatus & 0b10);
+  if (oswStatus != swStatus) printf("confirm writing to POINTOUT_PINs [0]: %d and [1]: %d\n", swStatus & 0b1,swStatus & 0b10);
 }
 void readjmripoints() {
   pointData = 0;
-  int swVal = !digitalRead(POINTOUT_PIN[0]);
+  int swVal = !digitalRead(POINTIN_PIN[0]);
+  //printf("\na0 =   %d\n", !swVal);
+  // printf("\na0 = not  %d\n", swVal);
   pointData |= swVal;
-  swVal = !digitalRead(POINTOUT_PIN[1]);
+  swVal = !digitalRead(POINTIN_PIN[1]);
   pointData |= swVal << 1;
+    if (opointData != opointData) printf("confirm reading from  POINTin_PINs [0]: %d and [1]: %d\n", pointData & 0b1,pointData & 0b10);
+
 }
 void loop() {
+  // digitalWrite(13,0);
+  // digitalWrite(2,0);
+  // delay (500);
+  // digitalWrite(13,1);
+  // digitalWrite(2,1);
+  // delay (500);
   readSensors();
   readjmripoints();
   sendSwitchestoJMRI();
@@ -160,13 +171,12 @@ void loop() {
 // Function that executes whenever the master requests data
 void requestEvent() {
   // Send sensorData and pointData as 16-bit integers to the master
-  // Wire.write(sensorData);
-  // Wire.write(pointData);
+
   Wire.write(highByte(sensorData));  // Send high byte of sensorData
   Wire.write(lowByte(sensorData));   // Send low byte of sensorData
-
   Wire.write(highByte(pointData));  // Send high byte of jmri pointData
   Wire.write(lowByte(pointData));   // Send low byte of jmri pointData
+  
 
   // Debug output
 
